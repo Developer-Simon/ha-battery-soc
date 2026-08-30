@@ -1,6 +1,6 @@
 # Battery SoC (LiFePO4 coulomb-counting)
 
-<img src="custom_components/battery_soc/brand/icon.png" alt="Battery SoC icon" width="88" align="right">
+<img src="https://raw.githubusercontent.com/Developer-Simon/ha-battery-soc/main/custom_components/battery_soc/brand/icon.png" alt="Battery SoC icon" width="88" align="right">
 
 A Home Assistant custom integration that estimates the **state of charge** of
 one or two LiFePO4 battery banks from sensors you already have. It does not talk
@@ -33,6 +33,10 @@ discharge-power sensor and one voltage sensor per bank.
 
 ## Install (HACS custom repository)
 
+[![Open your Home Assistant instance and add this repository to HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=Developer-Simon&repository=ha-battery-soc&category=integration)
+
+The button above pre-fills the custom-repository dialog. Or by hand:
+
 1. HACS → ⋮ (top right) → **Custom repositories**.
 2. Repository: `https://github.com/Developer-Simon/ha-battery-soc` — Category:
    **Integration**. Add.
@@ -55,6 +59,14 @@ coulomb-counting)”.**
 
 All of these are editable afterwards via the integration's **Configure** dialog
 (Power & Voltage Sources / Tunable Battery Parameters).
+
+## What it looks like
+
+![The Battery SoC device page in Home Assistant, showing the SoC sensor, the manual-SoC number and the diagnostic entities.](https://raw.githubusercontent.com/Developer-Simon/ha-battery-soc/main/docs/img/IntegrationDemo.png)
+
+> The screenshot is from a **German-language** Home Assistant, so the entity
+> labels above read in German. The integration ships English and German
+> translations and follows your Home Assistant language setting.
 
 ## Entities
 
