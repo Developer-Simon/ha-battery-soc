@@ -1,5 +1,7 @@
 # Battery SoC (LiFePO4 coulomb-counting)
 
+<img src="custom_components/battery_soc/brand/icon.png" alt="Battery SoC icon" width="88" align="right">
+
 A Home Assistant custom integration that estimates the **state of charge** of
 one or two LiFePO4 battery banks from sensors you already have. It does not talk
 to a BMS and needs no extra hardware — you point it at a charge-power sensor, a
@@ -32,7 +34,7 @@ discharge-power sensor and one voltage sensor per bank.
 ## Install (HACS custom repository)
 
 1. HACS → ⋮ (top right) → **Custom repositories**.
-2. Repository: `https://github.com/OWNER/ha-battery-soc` — Category:
+2. Repository: `https://github.com/Developer-Simon/ha-battery-soc` — Category:
    **Integration**. Add.
 3. HACS → search **Battery SoC** → **Download**.
 4. **Restart Home Assistant.**
@@ -90,6 +92,13 @@ data:
 
 The **SoC** sensor jumps to the value immediately. The `number` entities do the
 same thing from the UI.
+
+## Built with AI
+
+This integration was written with AI assistance (Claude, via Claude Code),
+reviewed and maintained by [@Developer-Simon](https://github.com/Developer-Simon).
+Contributors must disclose which AI tools assisted their pull request — see
+[AI-DISCLAIMER.md](AI-DISCLAIMER.md).
 
 ## License
 

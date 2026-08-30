@@ -4,8 +4,6 @@ set_state_of_charge:
   target:
     entity:
       integration: battery_soc
-    device:
-      integration: battery_soc
   fields:
     state_of_charge:
       name: State of charge
