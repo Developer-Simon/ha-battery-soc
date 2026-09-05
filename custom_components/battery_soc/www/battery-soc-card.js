@@ -12,12 +12,25 @@
 //   reserve_percent: 10               (0 = keine Reserve)
 //   invert_power: false
 //   runtime_entity: sensor.speicher_time_to_empty (optional)
+//   window: 6                         (Stunden Verlauf und Fortschreibung, nur trajectory)
+//   projection_window: 6              (optional, ueberschreibt nur die Fortschreibung)
 //   title: Speicher
 (() => {
   'use strict';
 
   const DEFAULT_RESERVE = 10;
+  const DEFAULT_WINDOW_HOURS = 6;
   const REFRESH_MS = 60000;
+
+  // window gilt fuer beide Haelften, projection_window ueberschreibt nur die
+  // Fortschreibung. Ungueltiges oder fehlendes window -> {} und der Kern
+  // nimmt seinen Sechs-Stunden-Default.
+  function windowHours(config) {
+    const win = Number(config.window);
+    if (!(win > 0)) return {};
+    const proj = Number(config.projection_window);
+    return {historyHours: win, forecastHours: proj > 0 ? proj : win};
+  }
 
   // Der Kern wird als eigene Datei geladen und ist bei der Registrierung
   // dieses Elements womoeglich noch nicht da. Statt eines harten Imports
@@ -46,6 +59,7 @@
     const soc = numberState(hass, config.soc_entity);
     const rawWatts = numberState(hass, config.power_entity) || 0;
     const reserve = config.reserve_percent;
+    const win = windowHours(config);
     return {
       soc,
       capacity: Number(config.capacity_kwh) || 0,
@@ -57,6 +71,8 @@
       nowTs,
       history,
       runtimeHours: config.runtime_entity ? numberState(hass, config.runtime_entity) : null,
+      historyHours: win.historyHours,
+      forecastHours: win.forecastHours,
     };
   }
 
@@ -114,6 +130,7 @@
     disconnectedCallback() {
       if (this._timer) { window.clearInterval(this._timer); this._timer = null; }
       if (this._coreWaitTimer) { window.clearInterval(this._coreWaitTimer); this._coreWaitTimer = null; }
+      if (this._card && this._card.destroy) this._card.destroy();
     }
 
     _mount() {
@@ -141,8 +158,10 @@
     async _refreshHistory() {
       if (!this._core || !this._hass) return;
       const now = Date.now();
+      const win = windowHours(this._config);
+      const spanMs = (win.historyHours > 0 ? win.historyHours : DEFAULT_WINDOW_HOURS) * 3600000;
       this._history = await this._core.readHistory(
-        historyReader(this._hass, this._config.soc_entity), now - this._core.SPAN_MS, now);
+        historyReader(this._hass, this._config.soc_entity), now - spanMs, now);
       this._paint();
     }
 
@@ -155,6 +174,7 @@
 
   BatterySocCard.inputFromHass = inputFromHass;
   BatterySocCard.historyReader = historyReader;
+  BatterySocCard.windowHours = windowHours;
 
   if (!window.customElements.get('battery-soc-card')) {
     window.customElements.define('battery-soc-card', BatterySocCard);

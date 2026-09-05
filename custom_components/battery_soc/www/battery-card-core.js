@@ -30,9 +30,17 @@
   const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
   const num = (value, fallback = 0) => (Number.isFinite(Number(value)) ? Number(value) : fallback);
 
+  // Verlaufs- und Fortschreibungsfenster in Stunden. historyHours gilt fuer
+  // beide Haelften, forecastHours ueberschreibt nur die Fortschreibung -
+  // faellt es weg, folgt es historyHours. Beide Wirte reichen hier ihre
+  // Einstellung herein (Dashboard: data-battery-window, HA: config.window).
+  const DEFAULT_WINDOW_HOURS = 6;
+  const posNum = (value, fallback) => (Number.isFinite(Number(value)) && Number(value) > 0 ? Number(value) : fallback);
+
   function normalizeInput(raw) {
     const source = raw || {};
     const soc = Number.isFinite(Number(source.soc)) ? clamp(Number(source.soc), 0, 100) : null;
+    const historyHours = posNum(source.historyHours, DEFAULT_WINDOW_HOURS);
     return {
       soc,
       capacity: Math.max(0, num(source.capacity, 0)),
@@ -42,6 +50,8 @@
       nowTs: num(source.nowTs, Date.now()),
       history: Array.isArray(source.history) ? source.history : [],
       runtimeHours: Number.isFinite(Number(source.runtimeHours)) ? Number(source.runtimeHours) : null,
+      historyHours,
+      forecastHours: posNum(source.forecastHours, historyHours),
     };
   }
 
@@ -218,10 +228,20 @@
   const toPath = pairs => pairs.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
   const roundHours = ms => Math.round(ms / 3600000 * 10) / 10;
 
-  function chartGeometry(state, run, windowed, mode) {
+  // opts.forecastHours setzt die Spanne der Fortschreibungshaelfte (Default
+  // FORECAST_HOURS), opts.width die tatsaechliche Zeichenbreite in
+  // SVG-Einheiten (Default VIEW.x1 + VIEW.x0 = die feste 320er-viewBox). Der
+  // Renderer misst die Karte und rechnet die Geometrie bei jedem Resize mit
+  // der neuen Breite neu - so wird eine breite Karte breiter statt hoeher.
+  function chartGeometry(state, run, windowed, mode, opts = {}) {
+    const forecastHours = posNum(opts.forecastHours, FORECAST_HOURS);
+    const forecastMs = forecastHours * 3600000;
+    const x1 = posNum(opts.width, VIEW.x1 + VIEW.x0) - VIEW.x0;
+    const view = {...VIEW, x1};
+
     // nowX teilt die Flaeche im Verhaeltnis der beiden Zeitspannen. Ohne
     // Verlauf liegt es am linken Rand, die Fortschreibung bekommt alles.
-    const nowX = VIEW.x0 + (VIEW.x1 - VIEW.x0) * (mode.spanMs / (mode.spanMs + SPAN_MS));
+    const nowX = VIEW.x0 + (x1 - VIEW.x0) * (mode.spanMs / (mode.spanMs + forecastMs));
 
     const historyPaths = mode.mode === 'none' ? [] : windowed.segments.map(segment => toPath(
       segment.map(point => [
@@ -230,15 +250,15 @@
       ]),
     ));
 
-    const forecastPath = toPath(forecast(state, run).map(point => [
-      nowX + (VIEW.x1 - nowX) * (point.h / FORECAST_HOURS),
+    const forecastPath = toPath(forecast(state, run, forecastHours).map(point => [
+      nowX + (x1 - nowX) * (point.h / forecastHours),
       py(point.v),
     ]));
 
     const showBand = state.reserve > 0;
     const bandY = showBand ? py(state.reserve) : VIEW.y1;
-    const showCrossing = run.hours !== null && (run.hours <= FORECAST_HOURS || run.kind === 'empty');
-    const crossingHours = showCrossing ? Math.min(run.hours, FORECAST_HOURS) : null;
+    const showCrossing = run.hours !== null && (run.hours <= forecastHours || run.kind === 'empty');
+    const crossingHours = showCrossing ? Math.min(run.hours, forecastHours) : null;
 
     return {
       historyPaths,
@@ -249,7 +269,7 @@
       bandY,
       bandHeight: showBand ? VIEW.y1 - bandY : 0,
       crossing: !showCrossing ? null : {
-        x: nowX + (VIEW.x1 - nowX) * (crossingHours / FORECAST_HOURS),
+        x: nowX + (x1 - nowX) * (crossingHours / forecastHours),
         y: py(run.bound),
         label: run.kind === 'full' ? 'voll' : run.kind === 'empty' ? 'leer' : 'Reserve',
       },
@@ -261,9 +281,9 @@
       ticks: {
         left: mode.mode === 'none' ? 'jetzt' : `−${roundHours(mode.spanMs)} h`,
         center: mode.mode === 'none' ? '' : 'jetzt',
-        right: `+${FORECAST_HOURS} h`,
+        right: `+${roundHours(forecastMs)} h`,
       },
-      view: VIEW,
+      view,
     };
   }
 
@@ -329,7 +349,12 @@
 .battery-ring-label span { font-size: 10.5px; letter-spacing: .05em; text-transform: uppercase; color: var(--battery-ink-3); }
 
 .battery-chart { flex: 1; min-width: 0; }
-.battery-chart svg { display: block; width: 100%; height: auto; }
+/* Feste Hoehe, Breite fuellt die Karte: der Renderer (mountTrajectory) setzt
+   die viewBox-Breite per ResizeObserver passend zur gemessenen Pixelbreite,
+   damit eine Einheit ~ ein Pixel bleibt und nichts verzerrt. Bis zur ersten
+   Messung skaliert die Default-preserveAspectRatio ("xMidYMid meet") die feste
+   320er-viewBox mittig ein - ein Frame Briefkasten, keine Verzerrung. */
+.battery-chart svg { display: block; width: 100%; height: 150px; }
 .battery-band { fill: var(--battery-ink-3); opacity: .13; }
 .battery-axis { stroke: var(--battery-line); stroke-width: 1; }
 .battery-nowline { stroke: var(--battery-ink-3); stroke-width: 1; stroke-dasharray: 2 3; opacity: .8; }
@@ -400,8 +425,13 @@
     const input = normalizeInput(rawInput);
     const state = batteryState(input);
     const run = runtime(state, input.runtimeHours);
-    const windowed = socSegments(input.history, input.nowTs - SPAN_MS, input.nowTs);
-    const mode = historyMode(windowed, input.nowTs, SPAN_MS);
+    const historySpanMs = input.historyHours * 3600000;
+    const windowed = socSegments(input.history, input.nowTs - historySpanMs, input.nowTs);
+    const mode = historyMode(windowed, input.nowTs, historySpanMs);
+    // chartInputs reicht die Zutaten an den Renderer weiter, damit er die
+    // Geometrie beim Resize mit der gemessenen Breite neu rechnen kann, ohne
+    // den ganzen Schnappschuss noch einmal durch viewFrom zu schicken.
+    const chartInputs = {state, run, windowed, mode, forecastHours: input.forecastHours};
     return {
       tone: toneOf(state, run),
       socLabel: state.hasSoC ? `${nf(state.soc, 0)} %` : '—',
@@ -419,7 +449,8 @@
         {key: 'usable', label: 'Abrufbar', value: `${nf(state.usable, 1)} kWh`},
         {key: 'flow', label: 'Fluss', value: `${state.watts >= 0 ? '+' : '−'}${nf(Math.abs(state.watts) / 1000, 2)} kW`},
       ],
-      chart: chartGeometry(state, run, windowed, mode),
+      chart: chartGeometry(state, run, windowed, mode, {forecastHours: input.forecastHours}),
+      chartInputs,
     };
   }
 
@@ -549,56 +580,104 @@
 
     root.append(header, body, kpiList);
 
+    // Die viewBox ist 130 Einheiten hoch und im CSS auf CHART_HEIGHT Pixel
+    // festgenagelt. Ihre Breite folgt der gemessenen Kartenbreite, damit eine
+    // Einheit ~ ein Pixel bleibt - so waechst eine breite Karte in die Breite
+    // (mehr Zeitachse) statt in die Hoehe (dieselbe Achse, nur groesser).
+    const CHART_HEIGHT = 150;
+    const BASE_WIDTH = VIEW.x1 + VIEW.x0;
+    let plotWidth = BASE_WIDTH;
+    let lastInputs = null;
+    let lastSocLabel = '—';
+
+    const widthForPixels = px =>
+      px > 0 ? Math.max(BASE_WIDTH, Math.round(130 * px / CHART_HEIGHT)) : BASE_WIDTH;
+
+    function drawChart(geometry) {
+      const {x0, x1} = geometry.view;
+      chartSvg.setAttribute('viewBox', `0 0 ${(x1 + x0).toFixed(0)} 130`);
+      // Die frueher fest verdrahteten rechten Kanten wandern mit x1.
+      band.setAttribute('width', (x1 - x0).toFixed(1));
+      axis.setAttribute('x2', x1.toFixed(1));
+      tickRight.setAttribute('x', x1.toFixed(1));
+      foot.setAttribute('x', x1.toFixed(1));
+
+      band.setAttribute('y', geometry.bandY.toFixed(2));
+      band.setAttribute('height', geometry.bandHeight.toFixed(2));
+      band.style.display = geometry.showBand ? '' : 'none';
+
+      nowLine.setAttribute('x1', geometry.nowX.toFixed(1));
+      nowLine.setAttribute('x2', geometry.nowX.toFixed(1));
+      nowDot.setAttribute('cx', geometry.nowX.toFixed(1));
+      nowDot.setAttribute('cy', geometry.nowY.toFixed(1));
+
+      // Nur die Zahl der Linien wird angeglichen - der Rest des Geruests
+      // bleibt stehen, damit Farbwechsel weiter ueberblenden koennen.
+      while (histGroup.childNodes.length > geometry.historyPaths.length) histGroup.lastChild.remove();
+      while (histGroup.childNodes.length < geometry.historyPaths.length) {
+        histGroup.append(svgEl('polyline', {class: 'battery-hist', points: ''}));
+      }
+      geometry.historyPaths.forEach((path, index) => histGroup.childNodes[index].setAttribute('points', path));
+      forecastLine.setAttribute('points', geometry.forecastPath);
+
+      if (geometry.crossing) {
+        crossDot.style.display = '';
+        crossDot.setAttribute('cx', geometry.crossing.x.toFixed(1));
+        crossDot.setAttribute('cy', geometry.crossing.y.toFixed(1));
+      } else {
+        crossDot.style.display = 'none';
+      }
+
+      tickLeft.textContent = geometry.ticks.left;
+      tickCenter.textContent = geometry.ticks.center;
+      tickCenter.setAttribute('x', geometry.nowX.toFixed(1));
+      tickRight.textContent = geometry.ticks.right;
+
+      hint.textContent = geometry.hint || '';
+      hint.hidden = !geometry.hint;
+
+      chartSvg.setAttribute('aria-label',
+        `Ladestand ${lastSocLabel}. ${geometry.hint || 'Verlauf und Fortschreibung des Ladestands.'}`);
+    }
+
+    function renderChart() {
+      if (!lastInputs) return;
+      drawChart(chartGeometry(lastInputs.state, lastInputs.run, lastInputs.windowed, lastInputs.mode,
+        {forecastHours: lastInputs.forecastHours, width: plotWidth}));
+    }
+
+    let observer = null;
+    if (typeof ResizeObserver === 'function') {
+      observer = new ResizeObserver(entries => {
+        const px = entries[entries.length - 1]?.contentRect?.width || chart.clientWidth || 0;
+        const next = widthForPixels(px);
+        if (next === plotWidth) return;
+        plotWidth = next;
+        renderChart();
+      });
+      observer.observe(chart);
+    }
+
     return {
       update(view) {
-        const geometry = view.chart;
         root.dataset.tone = view.tone;
         stateText.textContent = view.stateLabel;
         ringNumber.textContent = view.socNumber;
         arc.setAttribute('stroke-dashoffset', view.ringOffset.toFixed(2));
-
-        band.setAttribute('y', geometry.bandY.toFixed(2));
-        band.setAttribute('height', geometry.bandHeight.toFixed(2));
-        band.style.display = geometry.showBand ? '' : 'none';
         bandLabel.textContent = view.reserveLabel;
+        lastSocLabel = view.socLabel;
 
-        nowLine.setAttribute('x1', geometry.nowX.toFixed(1));
-        nowLine.setAttribute('x2', geometry.nowX.toFixed(1));
-        nowDot.setAttribute('cx', geometry.nowX.toFixed(1));
-        nowDot.setAttribute('cy', geometry.nowY.toFixed(1));
-
-        // Nur die Zahl der Linien wird angeglichen - der Rest des Geruests
-        // bleibt stehen, damit Farbwechsel weiter ueberblenden koennen.
-        while (histGroup.childNodes.length > geometry.historyPaths.length) histGroup.lastChild.remove();
-        while (histGroup.childNodes.length < geometry.historyPaths.length) {
-          histGroup.append(svgEl('polyline', {class: 'battery-hist', points: ''}));
-        }
-        geometry.historyPaths.forEach((path, index) => histGroup.childNodes[index].setAttribute('points', path));
-        forecastLine.setAttribute('points', geometry.forecastPath);
-
-        if (geometry.crossing) {
-          crossDot.style.display = '';
-          crossDot.setAttribute('cx', geometry.crossing.x.toFixed(1));
-          crossDot.setAttribute('cy', geometry.crossing.y.toFixed(1));
-        } else {
-          crossDot.style.display = 'none';
-        }
-
-        tickLeft.textContent = geometry.ticks.left;
-        tickCenter.textContent = geometry.ticks.center;
-        tickCenter.setAttribute('x', geometry.nowX.toFixed(1));
-        tickRight.textContent = geometry.ticks.right;
-
-        hint.textContent = geometry.hint || '';
-        hint.hidden = !geometry.hint;
-
-        chartSvg.setAttribute('aria-label',
-          `Ladestand ${view.socLabel}. ${geometry.hint || 'Verlauf der letzten sechs Stunden und Fortschreibung der nächsten sechs.'}`);
+        lastInputs = view.chartInputs || null;
+        if (lastInputs) renderChart();
+        else drawChart(view.chart);
 
         view.kpis.forEach((kpi, index) => {
           kpis[index].term.textContent = kpi.label;
           kpis[index].value.textContent = kpi.value;
         });
+      },
+      destroy() {
+        if (observer) observer.disconnect();
       },
     };
   }

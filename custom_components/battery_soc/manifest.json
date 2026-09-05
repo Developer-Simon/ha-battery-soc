@@ -1,6 +1,9 @@
 {
   "domain": "battery_soc",
   "name": "Battery SoC (LiFePO4 coulomb-counting)",
+  "after_dependencies": [
+    "http"
+  ],
   "codeowners": [
     "@Developer-Simon"
   ],
@@ -10,5 +13,5 @@
   "iot_class": "calculated",
   "issue_tracker": "https://github.com/Developer-Simon/ha-battery-soc/issues",
   "requirements": [],
-  "version": "0.2.2"
+  "version": "0.2.3"
 }
