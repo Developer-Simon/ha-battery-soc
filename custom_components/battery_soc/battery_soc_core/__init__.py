@@ -1,6 +1,6 @@
 """battery_soc_core — transport-agnostic LiFePO4 state-of-charge core.
 
-Stdlib only. No MQTT, no Home Assistant, no werkstatt_iot_common.
+Stdlib only. No MQTT, no Home Assistant, no energy_node_common.
 Public surface is re-exported here; adapters import from this module.
 """
 from __future__ import annotations

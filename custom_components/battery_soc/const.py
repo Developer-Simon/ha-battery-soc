@@ -29,3 +29,8 @@ SOURCE_KEYS = (
     CONF_BANK_A_VOLTAGE_SCALE, CONF_BANK_B_VOLTAGE_SCALE,
     CONF_FALLBACK_INTERVAL_S,
 )
+
+# Ausliefer-Pfad der Lovelace-Karte. Die Dateien liegen im Paket unter www/
+# und werden beim ersten Setup als statischer Pfad registriert.
+FRONTEND_URL_BASE = "/battery_soc_frontend"
+FRONTEND_CARD_FILES = ("battery-card-core.js", "battery-soc-card.js")

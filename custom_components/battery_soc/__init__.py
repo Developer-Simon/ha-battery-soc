@@ -1,6 +1,10 @@
 """The battery_soc integration."""
 from __future__ import annotations
 
+from pathlib import Path
+
+from homeassistant.components.frontend import add_extra_js_url
+from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
@@ -8,7 +12,7 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.service import async_extract_config_entry_ids
 import voluptuous as vol
 
-from .const import DOMAIN, PLATFORMS, SERVICE_SET_SOC, ATTR_STATE_OF_CHARGE, ATTR_BANK
+from .const import DOMAIN, PLATFORMS, SERVICE_SET_SOC, ATTR_STATE_OF_CHARGE, ATTR_BANK, FRONTEND_URL_BASE, FRONTEND_CARD_FILES
 from .coordinator import BatterySocCoordinator
 from .battery_soc_core import set_state_of_charge
 
@@ -51,6 +55,30 @@ def _make_set_soc_handler(hass: HomeAssistant):
     return _async_set_soc
 
 
+async def _async_register_frontend(hass: HomeAssistant) -> None:
+    """Serve the Lovelace card and load it into the frontend.
+
+    Runs once per Home Assistant start, not once per config entry: a second
+    registration of the same static path raises.
+    """
+    if hass.data.get(f"{DOMAIN}_frontend_registered"):
+        return
+    http = getattr(hass, "http", None)
+    if http is None:
+        # Die Lovelace-Karte ist Beiwerk - sie darf den Config-Entry nie
+        # kippen. Ohne die http-Komponente (z. B. in Testinstanzen oder
+        # minimalen Setups) bleibt die Karte einfach unregistriert.
+        return
+
+    www = Path(__file__).parent / "www"
+    await http.async_register_static_paths(
+        [StaticPathConfig(FRONTEND_URL_BASE, str(www), False)]
+    )
+    for name in FRONTEND_CARD_FILES:
+        add_extra_js_url(hass, f"{FRONTEND_URL_BASE}/{name}")
+    hass.data[f"{DOMAIN}_frontend_registered"] = True
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up battery_soc from a config entry."""
     coord = BatterySocCoordinator(hass, entry)
@@ -65,6 +93,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.services.async_register(
             DOMAIN, SERVICE_SET_SOC, _make_set_soc_handler(hass), schema=SET_SOC_SCHEMA
         )
+
+    await _async_register_frontend(hass)
 
     return True
 
