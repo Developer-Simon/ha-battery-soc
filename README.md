@@ -45,20 +45,13 @@ The button above pre-fills the custom-repository dialog. Or by hand:
 
 ## Configure
 
-**Settings → Devices & Services → Add Integration → “Battery SoC (LiFePO4
-coulomb-counting)”.**
+Add it under **Settings → Devices & Services → Add Integration → “Battery SoC
+(LiFePO4 coulomb-counting)”**, then point it at your charger/inverter power
+sensors and one voltage sensor per bank.
 
-- **Battery Configuration** (`user` step): name, topology (parallel/series),
-  the charger and inverter power sensors (AC and/or DC), a voltage sensor per
-  bank with an optional scale factor, per-bank capacity (Ah) and cell count,
-  whether Bank B is enabled, chemistry and SoC curve profile.
-- **Advanced Battery Parameters** (`advanced` step): empty/full volts per cell,
-  charger/inverter/charge efficiencies, calibration tolerance and hold time,
-  voltage/coulomb mismatch warning thresholds, imbalance threshold, stale-input
-  and DC-age timeouts, internal resistance (mΩ/cell), fallback interval.
-
-All of these are editable afterwards via the integration's **Configure** dialog
-(Power & Voltage Sources / Tunable Battery Parameters).
+The full config-flow options, the entity list and the
+`battery_soc.set_state_of_charge` action are documented in
+[`docs/integration.md`](docs/integration.md).
 
 ## What it looks like
 
@@ -68,42 +61,29 @@ All of these are editable afterwards via the integration's **Configure** dialog
 > labels above read in German. The integration ships English and German
 > translations and follows your Home Assistant language setting.
 
-## Entities
+## Lovelace card
 
-One device per configured battery. Highlights:
-
-| Entity | Meaning |
-|---|---|
-| `sensor` **SoC** (`soc_combined`) | Primary state of charge (%). In series: the weakest bank. |
-| `sensor` **Net battery power** (`net_power`) | Charge (+) / discharge (−) power (W). |
-| `sensor` **Time to full / Time to empty** | Projection at the current rate (h, diagnostic). |
-| `binary_sensor` **Inputs stale** | A source sensor stopped updating. |
-| `binary_sensor` **AC fallback active** | Running on AC power sensors because DC is unavailable. |
-| `sensor` **Voltage / Current / Remaining Ah / Load-corrected cell voltage** | Per unit (pack / bank A / bank B), diagnostic. |
-| `sensor` **Calibration thresholds / Last calibration** | When and at what voltage the counter was last snapped. |
-| `sensor` **Voltage-based SoC (uncertain)** + `binary_sensor` **Voltage/coulomb mismatch** | Sanity cross-check against the coulomb count. |
-| series only: `sensor` **SoC Bank A/B**, **Voltage delta A/B**, `binary_sensor` **Banks imbalanced** | |
-| `number` **Set manual SoC** (per bank in series) | Write a known SoC to anchor the counter. |
-
-The full descriptor list lives in
-[`battery_soc_core/entities.py`](custom_components/battery_soc/battery_soc_core/entities.py).
-
-## Action: `battery_soc.set_state_of_charge`
-
-Anchor the coulomb counter to a known value — e.g. right after a full charge, or
-from a shunt-based reference.
+The integration ships its own Lovelace card, `custom:battery-soc-card`, and
+registers it with the frontend itself — no manual resource entry under
+**Settings → Dashboards → Resources** is needed. It offers two displays: a
+column (stock and time remaining) and a trajectory (ring plus a six-hour
+history and six-hour projection).
 
 ```yaml
-action: battery_soc.set_state_of_charge
-target:
-  device_id: <your battery device>
-data:
-  state_of_charge: 100     # percent, 0–100
-  # bank: a                # series topology only: which bank to anchor
+type: custom:battery-soc-card
+display: trajectory          # column | trajectory
+soc_entity: sensor.speicher_soc_combined
+power_entity: sensor.speicher_net_power
+capacity_kwh: 12.8
+reserve_percent: 10          # 0 = no reserve
+invert_power: false          # true if your meter reports discharge as positive
+runtime_entity: sensor.speicher_time_to_empty   # optional, wins over the linear estimate
 ```
 
-The **SoC** sensor jumps to the value immediately. The `number` entities do the
-same thing from the UI.
+`soc_entity` is the only required option. Without a Recorder history for
+`soc_entity` (Recorder disabled, or retention shorter than six hours) the
+trajectory display falls back to showing only the projection — that's the
+normal case after a restart, not an error.
 
 ## Built with AI
 
