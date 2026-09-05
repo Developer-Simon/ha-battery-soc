@@ -69,6 +69,17 @@ registers it with the frontend itself — no manual resource entry under
 column (stock and time remaining) and a trajectory (ring plus a six-hour
 history and six-hour projection).
 
+| `display: column` | `display: trajectory` |
+|---|---|
+| ![Battery SoC Lovelace card, column display](https://raw.githubusercontent.com/Developer-Simon/ha-battery-soc/main/docs/img/LovelaceColumn.png) | ![Battery SoC Lovelace card, trajectory display](https://raw.githubusercontent.com/Developer-Simon/ha-battery-soc/main/docs/img/LovelaceTrajectory.png) |
+
+> **The card only appears once the integration is set up as a device.** It is
+> registered with the frontend from `async_setup_entry`, so you must add a
+> **Battery SoC** entry under *Settings → Devices & Services* first and then
+> **restart Home Assistant**. Until then Lovelace reports *Custom element
+> doesn't exist: battery-soc-card*. If it still fails after the restart, hard-
+> reload the browser (Ctrl+Shift+R) to drop the cached dashboard.
+
 ```yaml
 type: custom:battery-soc-card
 display: trajectory          # column | trajectory
