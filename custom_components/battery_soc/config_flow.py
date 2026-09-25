@@ -18,6 +18,7 @@ from homeassistant.helpers.selector import (
     NumberSelectorMode,
     SelectSelector,
     SelectSelectorConfig,
+    SelectSelectorMode,
     TextSelector,
 )
 from homeassistant.util import slugify
@@ -27,8 +28,10 @@ from .battery_soc_core import (
     validate_sources,
 )
 from .const import (
+    BANK_A_VOLTAGE_MEASURES,
     BANK_LAYOUTS,
     CONF_BANK_A_VOLTAGE_ENTITY,
+    CONF_BANK_A_VOLTAGE_MEASURES,
     CONF_BANK_A_VOLTAGE_SCALE,
     CONF_BANK_B_VOLTAGE_ENTITY,
     CONF_BANK_B_VOLTAGE_SCALE,
@@ -47,11 +50,14 @@ from .units import base_unit
 
 
 AC_ONLY_TUNABLES = ("charger_ac_dc_efficiency", "inverter_dc_ac_efficiency", "dc_max_age_s")
+# The only chemistry the SoC curves are made for.
+BATTERY_CHEMISTRIES = ("lifepo4",)
 
 
 def _select(options, translation_key: str) -> SelectSelector:
     return SelectSelector(SelectSelectorConfig(options=list(options),
-                                               translation_key=translation_key))
+                                               translation_key=translation_key,
+                                               mode=SelectSelectorMode.LIST))
 
 
 def _entity(device_class: str | list[str]) -> EntitySelector:
@@ -122,8 +128,11 @@ def _sources_schema(system_type: str, defaults: Mapping[str, Any]) -> dict[str, 
                      default=defaults.get("bank_a_capacity_ah", 100)): _capacity(),
         vol.Optional("bank_a_cell_count",
                      default=defaults.get("bank_a_cell_count", 8)): _cell_count(),
-        vol.Optional("battery_chemistry",
-                     default=defaults.get("battery_chemistry", "lifepo4")): TextSelector(),
+        # A stored free-text value from the old text field falls back to the one option.
+        vol.Optional("battery_chemistry", default=(
+            defaults.get("battery_chemistry") if defaults.get("battery_chemistry")
+            in BATTERY_CHEMISTRIES else BATTERY_CHEMISTRIES[0])):
+            _select(BATTERY_CHEMISTRIES, "battery_chemistry"),
         vol.Optional("soc_curve", default=defaults.get("soc_curve", "generic_lifepo4")):
             SelectSelector(SelectSelectorConfig(options=sorted(SOC_CURVES.keys()))),
     })
@@ -131,7 +140,7 @@ def _sources_schema(system_type: str, defaults: Mapping[str, Any]) -> dict[str, 
 
 
 def _bank_b_schema(layout: str, defaults: Mapping[str, Any]) -> dict[str, Any]:
-    """Bank B fields; the voltage only exists for banks in series."""
+    """Bank B fields; the voltages only exist for banks in series."""
     schema: dict[str, Any] = {
         vol.Optional("bank_b_capacity_ah", default=defaults.get(
             "bank_b_capacity_ah", defaults.get("bank_a_capacity_ah", 100))): _capacity(),
@@ -139,6 +148,9 @@ def _bank_b_schema(layout: str, defaults: Mapping[str, Any]) -> dict[str, Any]:
             "bank_b_cell_count", defaults.get("bank_a_cell_count", 8))): _cell_count(),
     }
     if layout == LAYOUT_SERIES:
+        schema[vol.Required(CONF_BANK_A_VOLTAGE_MEASURES, default=defaults.get(
+            CONF_BANK_A_VOLTAGE_MEASURES, BANK_A_VOLTAGE_MEASURES[0]))] = \
+            _select(BANK_A_VOLTAGE_MEASURES, CONF_BANK_A_VOLTAGE_MEASURES)
         schema[vol.Required(CONF_BANK_B_VOLTAGE_ENTITY,
                             **_suggest(defaults, CONF_BANK_B_VOLTAGE_ENTITY))] = _entity("voltage")
         schema[vol.Optional(CONF_BANK_B_VOLTAGE_SCALE,
@@ -232,6 +244,8 @@ def _finalize(data: Mapping[str, Any], layout: str) -> dict[str, Any]:
     if layout != LAYOUT_SERIES:
         out[CONF_BANK_B_VOLTAGE_ENTITY] = ""
         out.pop(CONF_BANK_B_VOLTAGE_SCALE, None)
+        # Written, not dropped: an options flow must override a stored "stack".
+        out[CONF_BANK_A_VOLTAGE_MEASURES] = BANK_A_VOLTAGE_MEASURES[0]
     if layout == LAYOUT_SINGLE:
         out.pop("bank_b_capacity_ah", None)
         out.pop("bank_b_cell_count", None)
